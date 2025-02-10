@@ -15,6 +15,9 @@
         }
         .controls {
             margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
         }
         select {
             padding: 8px;
@@ -44,6 +47,27 @@
             color: #666;
             font-size: 14px;
         }
+        #currentUrl {
+            margin-left: 10px;
+            padding: 8px;
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            flex: 1;
+            font-family: monospace;
+            word-break: break-all;
+        }
+        .copy-button {
+            padding: 8px 16px;
+            background: #0366d6;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .copy-button:hover {
+            background: #0255b3;
+        }
     </style>
 </head>
 <body>
@@ -52,6 +76,8 @@
         <select id="pdfSelect" onchange="changePDF()">
             <option value="">加载中...</option>
         </select>
+        <input type="text" id="currentUrl" readonly>
+        <button onclick="copyUrl()" class="copy-button">复制链接</button>
     </div>
     <div id="errorMessage" class="error-message" style="display: none;"></div>
     <div class="pdf-container">
@@ -59,7 +85,6 @@
     </div>
 
     <script>
-        // 自动获取 GitHub 用户名和仓库名
         function getGitHubInfo() {
             const url = window.location.hostname;
             const path = window.location.pathname.split('/')[1];
@@ -80,6 +105,12 @@
         const GITHUB_USERNAME = githubInfo ? githubInfo.username : '';
         const GITHUB_REPO = githubInfo ? githubInfo.repo : '';
         const GITHUB_BRANCH = 'main';
+
+        // 检查URL参数中是否有预选的PDF文件
+        function getSelectedPdfFromUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('pdf');
+        }
 
         function showError(message) {
             const errorDiv = document.getElementById('errorMessage');
@@ -132,6 +163,7 @@
                 updateRepoInfo();
                 
                 const files = await fetchPDFFiles();
+                const selectedPdf = getSelectedPdfFromUrl();
                 
                 if (files.length === 0) {
                     select.innerHTML = '<option value="">未找到PDF文件</option>';
@@ -143,8 +175,16 @@
                     const option = document.createElement('option');
                     option.value = file.path;
                     option.textContent = `${file.name} (${file.path})`;
+                    if (file.path === selectedPdf) {
+                        option.selected = true;
+                    }
                     select.appendChild(option);
                 });
+
+                // 如果URL中有预选的PDF，自动加载它
+                if (selectedPdf) {
+                    changePDF();
+                }
             } catch (error) {
                 select.innerHTML = '<option value="">加载失败</option>';
                 showError(`加载失败: ${error.message}`);
@@ -152,18 +192,40 @@
             }
         }
 
+        function updateUrl(pdfPath) {
+            const newUrl = new URL(window.location.href);
+            if (pdfPath) {
+                newUrl.searchParams.set('pdf', pdfPath);
+            } else {
+                newUrl.searchParams.delete('pdf');
+            }
+            window.history.pushState({}, '', newUrl);
+        }
+
         function changePDF() {
             const select = document.getElementById('pdfSelect');
             const viewer = document.getElementById('pdfViewer');
+            const urlInput = document.getElementById('currentUrl');
             hideError();
             
             if (select.value) {
                 const pdfUrl = `https://${GITHUB_USERNAME}.github.io/${GITHUB_REPO}/${select.value}`;
                 viewer.src = pdfUrl;
+                urlInput.value = pdfUrl;
+                updateUrl(select.value);
                 console.log('Loading PDF:', pdfUrl);
             } else {
                 viewer.src = '';
+                urlInput.value = '';
+                updateUrl('');
             }
+        }
+
+        function copyUrl() {
+            const urlInput = document.getElementById('currentUrl');
+            urlInput.select();
+            document.execCommand('copy');
+            alert('链接已复制到剪贴板！');
         }
 
         // 页面加载时初始化
