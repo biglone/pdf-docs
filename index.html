@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PDF文档查看器</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <style>
         body {
             margin: 0;
@@ -18,7 +19,6 @@
             display: flex;
             gap: 10px;
             align-items: center;
-            flex-wrap: wrap;
         }
         select {
             padding: 8px;
@@ -44,19 +44,55 @@
             color: #666;
             font-size: 14px;
         }
-        .url-container {
+        .tab-container {
+            margin-bottom: 20px;
+            border-bottom: 1px solid #ddd;
+        }
+        .tab-button {
+            padding: 10px 20px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            margin-right: 5px;
+            font-size: 14px;
+        }
+        .tab-button:hover {
+            background: #f0f0f0;
+        }
+        .tab-button.active {
+            border-bottom: 2px solid #0366d6;
+            color: #0366d6;
+        }
+        .view-container {
+            flex: 1;
             display: flex;
-            gap: 10px;
-            align-items: center;
+            flex-direction: column;
+        }
+        .view-container > div {
+            display: none;
             flex: 1;
         }
-        .url-input {
+        .view-container > div.active {
+            display: flex;
+        }
+        #textView {
+            flex-direction: column;
+            gap: 10px;
+        }
+        #textContent {
             flex: 1;
-            padding: 8px;
+            white-space: pre-wrap;
             font-family: monospace;
-            background: #f5f5f5;
+            padding: 20px;
+            background: #fff;
             border: 1px solid #ddd;
-            border-radius: 4px;
+            overflow-y: auto;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .text-controls {
+            display: flex;
+            gap: 10px;
         }
         .button {
             padding: 8px 16px;
@@ -65,51 +101,47 @@
             border: none;
             border-radius: 4px;
             cursor: pointer;
-            white-space: nowrap;
         }
         .button:hover {
             background: #0255b3;
         }
-        .url-type {
-            display: flex;
-            align-items: center;
-            gap: 20px;
-        }
-        .url-label {
-            font-size: 14px;
+        .loading {
+            text-align: center;
+            padding: 20px;
             color: #666;
+            font-style: italic;
         }
     </style>
 </head>
 <body>
     <div class="info" id="repoInfo"></div>
     <div class="controls">
-        <select id="pdfSelect" onchange="changePDF()">
+        <select id="pdfSelect" onchange="loadPDF()">
             <option value="">选择PDF文档...</option>
         </select>
-        <div class="url-type">
-            <div>
-                <div class="url-label">预览链接：</div>
-                <div class="url-container">
-                    <input type="text" id="pagesUrl" class="url-input" readonly>
-                    <button onclick="copyUrl('pagesUrl')" class="button">复制</button>
-                </div>
-            </div>
-            <div>
-                <div class="url-label">Raw链接 (用于Cursor)：</div>
-                <div class="url-container">
-                    <input type="text" id="rawUrl" class="url-input" readonly>
-                    <button onclick="copyUrl('rawUrl')" class="button">复制</button>
-                </div>
-            </div>
-        </div>
+    </div>
+    <div class="tab-container">
+        <button class="tab-button active" onclick="switchView('preview')">PDF预览</button>
+        <button class="tab-button" onclick="switchView('text')">文本内容</button>
     </div>
     <div id="errorMessage" class="error-message" style="display: none;"></div>
-    <div class="pdf-container">
-        <iframe id="pdfViewer" src=""></iframe>
+    <div class="view-container">
+        <div id="previewView" class="active">
+            <div class="pdf-container">
+                <iframe id="pdfViewer" src=""></iframe>
+            </div>
+        </div>
+        <div id="textView">
+            <div class="text-controls">
+                <button class="button" onclick="copyText()">复制文本内容</button>
+            </div>
+            <div id="textContent">选择PDF文件后将在此处显示文本内容...</div>
+        </div>
     </div>
 
     <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
         function getGitHubInfo() {
             const url = window.location.hostname;
             const path = window.location.pathname.split('/')[1];
@@ -129,11 +161,6 @@
         const GITHUB_USERNAME = githubInfo ? githubInfo.username : '';
         const GITHUB_REPO = githubInfo ? githubInfo.repo : '';
         const GITHUB_BRANCH = 'main';
-
-        function getSelectedPdfFromUrl() {
-            const urlParams = new URLSearchParams(window.location.search);
-            return urlParams.get('pdf');
-        }
 
         function showError(message) {
             const errorDiv = document.getElementById('errorMessage');
@@ -158,6 +185,32 @@
             const rawUrl = `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${GITHUB_REPO}/${GITHUB_BRANCH}/${pdfPath}`;
             
             return { pagesUrl, rawUrl };
+        }
+
+        async function extractTextFromPDF(pdfUrl) {
+            const textContent = document.getElementById('textContent');
+            textContent.textContent = '正在提取文本内容，请稍候...';
+
+            try {
+                const loadingTask = pdfjsLib.getDocument(pdfUrl);
+                const pdf = await loadingTask.promise;
+                let fullText = '';
+                
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    const pageText = textContent.items
+                        .map(item => item.str)
+                        .join(' ')
+                        .replace(/\s+/g, ' ');
+                    fullText += `=== 第 ${i} 页 ===\n${pageText}\n\n`;
+                }
+                
+                return fullText;
+            } catch (error) {
+                console.error('Error extracting text:', error);
+                throw new Error('无法提取文本内容: ' + error.message);
+            }
         }
 
         async function fetchPDFFiles() {
@@ -195,7 +248,6 @@
                 updateRepoInfo();
                 
                 const files = await fetchPDFFiles();
-                const selectedPdf = getSelectedPdfFromUrl();
                 
                 if (files.length === 0) {
                     select.innerHTML = '<option value="">未找到PDF文件</option>';
@@ -207,15 +259,8 @@
                     const option = document.createElement('option');
                     option.value = file.path;
                     option.textContent = `${file.name} (${file.path})`;
-                    if (file.path === selectedPdf) {
-                        option.selected = true;
-                    }
                     select.appendChild(option);
                 });
-
-                if (selectedPdf) {
-                    changePDF();
-                }
             } catch (error) {
                 select.innerHTML = '<option value="">加载失败</option>';
                 showError(`加载失败: ${error.message}`);
@@ -223,42 +268,52 @@
             }
         }
 
-        function updateUrl(pdfPath) {
-            const newUrl = new URL(window.location.href);
-            if (pdfPath) {
-                newUrl.searchParams.set('pdf', pdfPath);
-            } else {
-                newUrl.searchParams.delete('pdf');
-            }
-            window.history.pushState({}, '', newUrl);
+        function switchView(view) {
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelectorAll('.view-container > div').forEach(div => {
+                div.classList.remove('active');
+            });
+
+            document.querySelector(`.tab-button[onclick*="${view}"]`).classList.add('active');
+            document.getElementById(`${view}View`).classList.add('active');
         }
 
-        function changePDF() {
+        async function loadPDF() {
             const select = document.getElementById('pdfSelect');
             const viewer = document.getElementById('pdfViewer');
-            const pagesUrlInput = document.getElementById('pagesUrl');
-            const rawUrlInput = document.getElementById('rawUrl');
+            const textContent = document.getElementById('textContent');
+            
             hideError();
             
             if (select.value) {
                 const urls = getPdfUrls(select.value);
                 viewer.src = urls.pagesUrl;
-                pagesUrlInput.value = urls.pagesUrl;
-                rawUrlInput.value = urls.rawUrl;
-                updateUrl(select.value);
+                
+                try {
+                    const text = await extractTextFromPDF(urls.rawUrl);
+                    textContent.textContent = text;
+                } catch (error) {
+                    showError(error.message);
+                    textContent.textContent = '文本提取失败';
+                }
             } else {
                 viewer.src = '';
-                pagesUrlInput.value = '';
-                rawUrlInput.value = '';
-                updateUrl('');
+                textContent.textContent = '选择PDF文件后将在此处显示文本内容...';
             }
         }
 
-        function copyUrl(inputId) {
-            const urlInput = document.getElementById(inputId);
-            urlInput.select();
-            document.execCommand('copy');
-            alert('链接已复制到剪贴板！');
+        function copyText() {
+            const textContent = document.getElementById('textContent');
+            const text = textContent.textContent;
+            
+            navigator.clipboard.writeText(text).then(() => {
+                alert('文本内容已复制到剪贴板！');
+            }).catch(err => {
+                console.error('复制失败:', err);
+                alert('复制失败，请手动选择文本并复制。');
+            });
         }
 
         window.onload = initializeSelect;
