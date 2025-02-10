@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>文档查看器</title>
+    <title>PDF文档查看器</title>
     <style>
         body {
             margin: 0;
@@ -18,6 +18,7 @@
             display: flex;
             gap: 10px;
             align-items: center;
+            flex-wrap: wrap;
         }
         select {
             padding: 8px;
@@ -34,10 +35,6 @@
             height: 100%;
             border: none;
         }
-        .loading {
-            color: #666;
-            font-style: italic;
-        }
         .error-message {
             color: #ff0000;
             margin-top: 10px;
@@ -47,32 +44,40 @@
             color: #666;
             font-size: 14px;
         }
-        #currentUrl {
-            margin-left: 10px;
+        .url-container {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex: 1;
+        }
+        .url-input {
+            flex: 1;
             padding: 8px;
+            font-family: monospace;
             background: #f5f5f5;
             border: 1px solid #ddd;
             border-radius: 4px;
-            flex: 1;
-            font-family: monospace;
-            word-break: break-all;
         }
-        .copy-button {
+        .button {
             padding: 8px 16px;
             background: #0366d6;
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            white-space: nowrap;
         }
-        .copy-button:hover {
+        .button:hover {
             background: #0255b3;
         }
-        .url-type-switch {
+        .url-type {
             display: flex;
             align-items: center;
-            gap: 10px;
-            margin-left: 10px;
+            gap: 20px;
+        }
+        .url-label {
+            font-size: 14px;
+            color: #666;
         }
     </style>
 </head>
@@ -80,18 +85,24 @@
     <div class="info" id="repoInfo"></div>
     <div class="controls">
         <select id="pdfSelect" onchange="changePDF()">
-            <option value="">加载中...</option>
+            <option value="">选择PDF文档...</option>
         </select>
-        <div class="url-type-switch">
-            <label>
-                <input type="radio" name="urlType" value="raw" checked onchange="updateUrlDisplay()"> Raw URL
-            </label>
-            <label>
-                <input type="radio" name="urlType" value="pages" onchange="updateUrlDisplay()"> Pages URL
-            </label>
+        <div class="url-type">
+            <div>
+                <div class="url-label">预览链接：</div>
+                <div class="url-container">
+                    <input type="text" id="pagesUrl" class="url-input" readonly>
+                    <button onclick="copyUrl('pagesUrl')" class="button">复制</button>
+                </div>
+            </div>
+            <div>
+                <div class="url-label">Raw链接 (用于Cursor)：</div>
+                <div class="url-container">
+                    <input type="text" id="rawUrl" class="url-input" readonly>
+                    <button onclick="copyUrl('rawUrl')" class="button">复制</button>
+                </div>
+            </div>
         </div>
-        <input type="text" id="currentUrl" readonly>
-        <button onclick="copyUrl()" class="copy-button">复制链接</button>
     </div>
     <div id="errorMessage" class="error-message" style="display: none;"></div>
     <div class="pdf-container">
@@ -110,7 +121,6 @@
                     repo: path
                 };
             }
-            
             console.error('Unable to determine GitHub information from URL');
             return null;
         }
@@ -150,17 +160,6 @@
             return { pagesUrl, rawUrl };
         }
 
-        function updateUrlDisplay() {
-            const select = document.getElementById('pdfSelect');
-            const urlInput = document.getElementById('currentUrl');
-            const urlType = document.querySelector('input[name="urlType"]:checked').value;
-            
-            if (select.value) {
-                const urls = getPdfUrls(select.value);
-                urlInput.value = urlType === 'raw' ? urls.rawUrl : urls.pagesUrl;
-            }
-        }
-
         async function fetchPDFFiles() {
             if (!GITHUB_USERNAME || !GITHUB_REPO) {
                 throw new Error('无法确定 GitHub 仓库信息');
@@ -189,7 +188,7 @@
 
         async function initializeSelect() {
             const select = document.getElementById('pdfSelect');
-            select.innerHTML = '<option value="">选择要查看的文档...</option>';
+            select.innerHTML = '<option value="">选择PDF文档...</option>';
             
             try {
                 hideError();
@@ -237,22 +236,26 @@
         function changePDF() {
             const select = document.getElementById('pdfSelect');
             const viewer = document.getElementById('pdfViewer');
+            const pagesUrlInput = document.getElementById('pagesUrl');
+            const rawUrlInput = document.getElementById('rawUrl');
             hideError();
             
             if (select.value) {
                 const urls = getPdfUrls(select.value);
                 viewer.src = urls.pagesUrl;
-                updateUrlDisplay();
+                pagesUrlInput.value = urls.pagesUrl;
+                rawUrlInput.value = urls.rawUrl;
                 updateUrl(select.value);
             } else {
                 viewer.src = '';
-                document.getElementById('currentUrl').value = '';
+                pagesUrlInput.value = '';
+                rawUrlInput.value = '';
                 updateUrl('');
             }
         }
 
-        function copyUrl() {
-            const urlInput = document.getElementById('currentUrl');
+        function copyUrl(inputId) {
+            const urlInput = document.getElementById(inputId);
             urlInput.select();
             document.execCommand('copy');
             alert('链接已复制到剪贴板！');
