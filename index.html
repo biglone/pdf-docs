@@ -32,6 +32,18 @@
             border: 1px solid #ddd;
             border-radius: 4px;
         }
+        button {
+            padding: 8px 16px;
+            background: #0366d6;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #0255b3;
+        }
         .view-container {
             flex: 1;
             display: flex;
@@ -111,27 +123,6 @@
             display: flex;
             gap: 10px;
         }
-        .button {
-            padding: 8px 16px;
-            background: #0366d6;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        .button:hover {
-            background: #0255b3;
-        }
-        .loading {
-            text-align: center;
-            padding: 20px;
-            color: #666;
-            font-style: italic;
-        }
     </style>
 </head>
 <body>
@@ -145,76 +136,40 @@
         <button class="tab-button active" onclick="switchView('preview')">PDF预览</button>
         <button class="tab-button" onclick="switchView('text')">文本内容</button>
     </div>
-    <div id="errorMessage" class="error-message"></div>
     <div class="view-container">
         <div id="previewView" class="pdf-container">
-            <iframe id="pdfViewer" src=""></iframe>
+            <iframe id="pdfViewer"></iframe>
         </div>
         <div id="textView">
             <div class="text-controls">
-                <button class="button" onclick="copyText()">
-                    <span>复制文本内容</span>
-                </button>
-                <button class="button" onclick="downloadText()">
-                    <span>下载文本文件</span>
-                </button>
+                <button onclick="copyText()">复制文本内容</button>
+                <button onclick="downloadText()">下载文本文件</button>
             </div>
-            <div id="textContent">选择PDF文件后将在此处显示文本内容...</div>
+            <pre id="textContent">选择PDF文件后将在此处显示文本内容...</pre>
         </div>
     </div>
-
+    <div class="error-message" id="errorMessage"></div>
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-        function getGitHubInfo() {
-            const url = window.location.hostname;
-            const path = window.location.pathname.split('/')[1];
-
-            if (url.endsWith('github.io')) {
-                const username = url.replace('.github.io', '');
-                return {
-                    username: username,
-                    repo: path
-                };
-            }
-            console.error('Unable to determine GitHub information from URL');
-            return null;
-        }
-
-        const githubInfo = getGitHubInfo();
-        const GITHUB_USERNAME = githubInfo ? githubInfo.username : '';
-        const GITHUB_REPO = githubInfo ? githubInfo.repo : '';
-        const GITHUB_BRANCH = 'main';
-
         function showError(message) {
             const errorDiv = document.getElementById('errorMessage');
-            errorDiv.textContent = message;
             errorDiv.style.display = 'block';
+            errorDiv.textContent = message;
         }
 
         function hideError() {
-            const errorDiv = document.getElementById('errorMessage');
-            errorDiv.style.display = 'none';
+            document.getElementById('errorMessage').style.display = 'none';
         }
 
-        function updateRepoInfo() {
-            const infoDiv = document.getElementById('repoInfo');
-            infoDiv.textContent = `仓库: ${GITHUB_USERNAME}/${GITHUB_REPO}`;
-        }
-
-        function getPdfUrls(pdfPath) {
-            if (!pdfPath) return { pagesUrl: '', rawUrl: '' };
-            
-            const pagesUrl = `https://${GITHUB_USERNAME}.github.io/${GITHUB_REPO}/${pdfPath}`;
-            const rawUrl = `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${GITHUB_REPO}/${GITHUB_BRANCH}/${pdfPath}`;
-            
+        function getPdfUrls(path) {
+            const baseUrl = 'https://raw.githubusercontent.com/biglone/pdf-docs/main/';
+            const pagesUrl = `https://biglone.github.io/pdf-docs/${path}`;
+            const rawUrl = baseUrl + path;
             return { pagesUrl, rawUrl };
         }
 
         async function extractTextFromPDF(pdfUrl) {
-            const textContent = document.getElementById('textContent');
-            textContent.textContent = '正在提取文本内容，请稍候...';
-
             try {
                 const loadingTask = pdfjsLib.getDocument(pdfUrl);
                 const pdf = await loadingTask.promise;
@@ -227,7 +182,12 @@
                     let pageText = '';
                     let lastY = null;
                     let lastX = null;
+                    let isInTable = false;
+                    let tableRow = [];
+                    let tableHeaders = [];
+                    const TABLE_CELL_THRESHOLD = 50;
                     
+                    // 按位置排序文本项
                     content.items.sort((a, b) => {
                         if (Math.abs(a.transform[5] - b.transform[5]) > 5) {
                             return b.transform[5] - a.transform[5];
@@ -235,40 +195,89 @@
                         return a.transform[4] - b.transform[4];
                     });
 
-                    content.items.forEach(item => {
+                    // 检测表格结构
+                    let tableStructure = [];
+                    content.items.forEach((item, index) => {
+                        const y = Math.round(item.transform[5]);
+                        if (!tableStructure[y]) {
+                            tableStructure[y] = [];
+                        }
+                        tableStructure[y].push({
+                            x: item.transform[4],
+                            text: item.str.trim(),
+                            width: item.width
+                        });
+                    });
+
+                    // 处理每一行
+                    for (let j = 0; j < content.items.length; j++) {
+                        const item = content.items[j];
+                        const nextItem = content.items[j + 1];
                         const y = item.transform[5];
                         const x = item.transform[4];
                         
-                        if (lastY !== null && Math.abs(y - lastY) > 5) {
-                            pageText += '\n';
-                            if (Math.abs(y - lastY) > 20) {
-                                pageText += '\n';
+                        // 检测表格行
+                        if (nextItem && Math.abs(y - nextItem.transform[5]) < 5) {
+                            const rowItems = tableStructure[Math.round(y)];
+                            if (rowItems && rowItems.length > 1) {
+                                isInTable = true;
+                                if (tableRow.length === 0) {
+                                    // 开始新表格行
+                                    pageText += '\n';
+                                }
+                                tableRow.push(item.str.trim());
+                                continue;
                             }
-                        } else if (lastX !== null && (x - lastX) > 100) {
-                            pageText += '\t';
                         }
                         
-                        let text = item.str.trim()
-                            .replace(/\s+/g, ' ')
-                            .replace(/[^\S\r\n]+/g, ' ');
-                        
-                        pageText += text;
-                        lastY = y;
-                        lastX = x + (item.width || 0);
-                    });
+                        // 处理表格行结束
+                        if (isInTable) {
+                            if (!nextItem || Math.abs(y - nextItem.transform[5]) >= 5) {
+                                tableRow.push(item.str.trim());
+                                // 输出表格行
+                                if (tableRow.length > 1) {
+                                    pageText += '| ' + tableRow.join(' | ') + ' |\n';
+                                    // 如果是表头，添加分隔行
+                                    if (tableHeaders.length === 0) {
+                                        tableHeaders = tableRow;
+                                        pageText += '|' + tableRow.map(() => ' --- |').join('') + '\n';
+                                    }
+                                }
+                                tableRow = [];
+                                isInTable = false;
+                                continue;
+                            }
+                            tableRow.push(item.str.trim());
+                            continue;
+                        }
 
-                    fullText += `\n# 第 ${i} 页\n\n`;
-                    fullText += pageText.trim() + '\n';
+                        // 处理普通文本
+                        if (lastY !== null) {
+                            const yDiff = Math.abs(y - lastY);
+                            if (yDiff > 5) {
+                                pageText += '\n';
+                                if (yDiff > 20) {
+                                    pageText += '\n';
+                                }
+                            } else if (lastX !== null && (x - lastX) > 100) {
+                                pageText += '\t';
+                            }
+                        }
+                        
+                        pageText += item.str.trim() + ' ';
+                        lastY = y;
+                        lastX = x + item.width;
+                    }
+
+                    fullText += `# 第 ${i} 页\n\n${pageText.trim()}\n\n`;
                 }
                 
                 // 后处理
                 fullText = fullText
                     .replace(/\n{3,}/g, '\n\n')
-                    .replace(/\t+/g, '\t')
-                    .replace(/\.{3,}/g, '...')
+                    .replace(/\|\s+\|/g, '|')
                     .replace(/\s+\n/g, '\n')
                     .replace(/\n\s+/g, '\n')
-                    .replace(/[ \t]+/g, ' ')
                     .trim();
                 
                 return fullText;
@@ -279,24 +288,11 @@
         }
 
         async function fetchPDFFiles() {
-            if (!GITHUB_USERNAME || !GITHUB_REPO) {
-                throw new Error('无法确定 GitHub 仓库信息');
-            }
-
             try {
-                const response = await fetch(`https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/git/trees/${GITHUB_BRANCH}?recursive=1`);
-                if (!response.ok) {
-                    throw new Error('获取仓库内容失败');
-                }
-                
-                const data = await response.json();
-                
-                return data.tree
-                    .filter(item => item.path.toLowerCase().endsWith('.pdf'))
-                    .map(item => ({
-                        name: item.path.split('/').pop(),
-                        path: item.path
-                    }))
+                const response = await fetch('https://api.github.com/repos/biglone/pdf-docs/contents/');
+                const files = await response.json();
+                return files
+                    .filter(file => file.name.toLowerCase().endsWith('.pdf'))
                     .sort((a, b) => a.name.localeCompare(b.name));
             } catch (error) {
                 console.error('Error fetching PDF files:', error);
@@ -310,8 +306,6 @@
             
             try {
                 hideError();
-                updateRepoInfo();
-                
                 const files = await fetchPDFFiles();
                 
                 if (files.length === 0) {
@@ -355,6 +349,7 @@
                 viewer.src = urls.pagesUrl;
                 
                 try {
+                    textContent.textContent = '正在提取文本内容，请稍候...';
                     const text = await extractTextFromPDF(urls.rawUrl);
                     textContent.textContent = text;
                 } catch (error) {
