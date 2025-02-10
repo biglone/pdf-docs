@@ -68,6 +68,12 @@
         .copy-button:hover {
             background: #0255b3;
         }
+        .url-type-switch {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: 10px;
+        }
     </style>
 </head>
 <body>
@@ -76,6 +82,14 @@
         <select id="pdfSelect" onchange="changePDF()">
             <option value="">加载中...</option>
         </select>
+        <div class="url-type-switch">
+            <label>
+                <input type="radio" name="urlType" value="raw" checked onchange="updateUrlDisplay()"> Raw URL
+            </label>
+            <label>
+                <input type="radio" name="urlType" value="pages" onchange="updateUrlDisplay()"> Pages URL
+            </label>
+        </div>
         <input type="text" id="currentUrl" readonly>
         <button onclick="copyUrl()" class="copy-button">复制链接</button>
     </div>
@@ -106,7 +120,6 @@
         const GITHUB_REPO = githubInfo ? githubInfo.repo : '';
         const GITHUB_BRANCH = 'main';
 
-        // 检查URL参数中是否有预选的PDF文件
         function getSelectedPdfFromUrl() {
             const urlParams = new URLSearchParams(window.location.search);
             return urlParams.get('pdf');
@@ -126,6 +139,26 @@
         function updateRepoInfo() {
             const infoDiv = document.getElementById('repoInfo');
             infoDiv.textContent = `仓库: ${GITHUB_USERNAME}/${GITHUB_REPO}`;
+        }
+
+        function getPdfUrls(pdfPath) {
+            if (!pdfPath) return { pagesUrl: '', rawUrl: '' };
+            
+            const pagesUrl = `https://${GITHUB_USERNAME}.github.io/${GITHUB_REPO}/${pdfPath}`;
+            const rawUrl = `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${GITHUB_REPO}/${GITHUB_BRANCH}/${pdfPath}`;
+            
+            return { pagesUrl, rawUrl };
+        }
+
+        function updateUrlDisplay() {
+            const select = document.getElementById('pdfSelect');
+            const urlInput = document.getElementById('currentUrl');
+            const urlType = document.querySelector('input[name="urlType"]:checked').value;
+            
+            if (select.value) {
+                const urls = getPdfUrls(select.value);
+                urlInput.value = urlType === 'raw' ? urls.rawUrl : urls.pagesUrl;
+            }
         }
 
         async function fetchPDFFiles() {
@@ -181,7 +214,6 @@
                     select.appendChild(option);
                 });
 
-                // 如果URL中有预选的PDF，自动加载它
                 if (selectedPdf) {
                     changePDF();
                 }
@@ -205,18 +237,16 @@
         function changePDF() {
             const select = document.getElementById('pdfSelect');
             const viewer = document.getElementById('pdfViewer');
-            const urlInput = document.getElementById('currentUrl');
             hideError();
             
             if (select.value) {
-                const pdfUrl = `https://${GITHUB_USERNAME}.github.io/${GITHUB_REPO}/${select.value}`;
-                viewer.src = pdfUrl;
-                urlInput.value = pdfUrl;
+                const urls = getPdfUrls(select.value);
+                viewer.src = urls.pagesUrl;
+                updateUrlDisplay();
                 updateUrl(select.value);
-                console.log('Loading PDF:', pdfUrl);
             } else {
                 viewer.src = '';
-                urlInput.value = '';
+                document.getElementById('currentUrl').value = '';
                 updateUrl('');
             }
         }
@@ -228,7 +258,6 @@
             alert('链接已复制到剪贴板！');
         }
 
-        // 页面加载时初始化
         window.onload = initializeSelect;
     </script>
 </body>
